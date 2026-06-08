@@ -1,54 +1,42 @@
-''' Gerenciador de tarefas para usuários utilizando FastAPI.
-1 - Criação de usuários: Permitir que os usuários se registrem fornecendo um ID, nome, idade e email.
-2 - Criação de tarefas: Permitir que os usuários criem tarefas associadas a eles, fornecendo um ID de tarefa, nome da tarefa, descrição e status de conclusão.
-3 - Listagem de tarefas: Permitir que os usuários visualizem suas tarefas, incluindo detalhes como nome da tarefa, descrição e status de conclusão.
-4 - Atualização de tarefas: Permitir que os usuários atualizem o status de conclusão de suas tarefas.
-5 - Exclusão de tarefas: Permitir que os usuários excluam tarefas específicas.
-
-'''
-
 from fastapi import FastAPI, HTTPException
-
 app = FastAPI()
-usuarios = {}
 lista_tarefas = {}
 
-def criar_usuario(id_usuario, nome, idade, email):
-    if id_usuario in usuarios:
-        raise HTTPException(status_code=400, detail="ID de usuário já existe.")
+# Adicionar tarefas
+
+@app.post("/criar_tarefa/")
+def criar_tarefa(id_tarefa: int,nome_tarefa: str, descricao_tarefa: str, concluida: bool = False):
+   if id_tarefa in lista_tarefas:
+       raise HTTPException(status_code=400, detail="Tarefa já existe")
+   else:
+       lista_tarefas[id_tarefa] = {'nome_tarefa': nome_tarefa, 'Descrição': descricao_tarefa, 'Concluída': concluida}
+       return {'message': 'Tarefa criada com sucesso'}
+   
+# Listar tarefas
+
+@app.get("/listar_tarefas/")
+def listar_tarefas():
+    if not lista_tarefas:
+        return {'message': 'Nenhuma tarefa encontrada'}
+    for tarefa,dados in lista_tarefas.items():
+        return f'\n'.join(f'id: {tarefa} - Tarefa: {dados['nome_tarefa']} - Descrição: {dados['Descrição']} - Concluída: {dados['Concluída']}' for tarefa, dados in lista_tarefas.items()) 
+    
+# Marcar tarefas como concluídas
+
+@app.put("/concluir_tarefa/{id_tarefa}")
+def concluir_tarefa(id_tarefa:int):
+    if id_tarefa not in lista_tarefas:
+        raise HTTPException(status_code=404, detail="Tarefa não encontrada")
     else:
-        nome = usuario(id_usuario, nome, idade, email)
-        usuarios[id_usuario] = {'nome': nome, 'idade': idade, 'email': email}
-        return f"Usuário {nome} criado com sucesso."
-
-class usuario:
-    def __init__(self,id_usuario,nome,idade,email):
-        self.id_usuario = id_usuario
-        self.nome = nome
-        self.idade = idade
-        self.email = email
-     
-    def exibir_dados(self):
-        print(f"Nome: {self.nome}")
-        print(f"Idade: {self.idade}")
-        print(f"Email: {self.email}")
+        lista_tarefas[id_tarefa]['Concluída'] = True
+        return {'message': f'Tarefa {id_tarefa} marcada como concluída'}
     
-    
-class tarefas:
-    def __init__(self,id_tarefa,nome_tarefa,descricao_tarefa,concluida,id_usuario):
-        self.id_tarefa = id_tarefa
-        self.nome_tarefa = nome_tarefa
-        self.descricao_tarefa = descricao_tarefa
-        self.concluida = False
-        self.id_usuario = id_usuario
-    
-        def criar_tarefa(self):
-            if id_tarefa in lista_tarefas:
-                raise HTTPException(status_code=400, detail="ID de tarefa já existe.")
-            else:
-                nome_tarefa = tarefas(id_tarefa, nome_tarefa, descricao_tarefa, concluida, id_usuario)
-                lista_tarefas[id_tarefa] = {'nome_tarefa': nome_tarefa, 'descricao_tarefa': descricao_tarefa, 'concluida': concluida, 'id_usuario': id_usuario}
-                return f"Tarefa {nome_tarefa} criada com sucesso para o usuário {usuarios[id_usuario]['nome']}."
+# Excluir tarefas
 
-
-__name_-_ = "__main__"
+@app.delete("/excluir_tarefa/{id_tarefa}")
+def excluir_tarefa(id_tarefa: int):
+    if id_tarefa not in lista_tarefas:
+        raise HTTPException(status_code=404, detail="Tarefa não encontrada")
+    else:
+        del lista_tarefas[id_tarefa]
+        return {'message': f'Tarefa {id_tarefa} excluída com sucesso'}
