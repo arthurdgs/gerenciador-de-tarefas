@@ -1,54 +1,88 @@
-''' Gerenciador de tarefas para usuários utilizando FastAPI.
-1 - Criação de usuários: Permitir que os usuários se registrem fornecendo um ID, nome, idade e email.
-2 - Criação de tarefas: Permitir que os usuários criem tarefas associadas a eles, fornecendo um ID de tarefa, nome da tarefa, descrição e status de conclusão.
-3 - Listagem de tarefas: Permitir que os usuários visualizem suas tarefas, incluindo detalhes como nome da tarefa, descrição e status de conclusão.
-4 - Atualização de tarefas: Permitir que os usuários atualizem o status de conclusão de suas tarefas.
-5 - Exclusão de tarefas: Permitir que os usuários excluam tarefas específicas.
+from fastapi import FastAPI, HTTPException, Depends 
+import json 
+from pydantic import BaseModel, Field
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+import secrets 
+import os 
 
-'''
+# Autenticação de usuário 
 
-from fastapi import FastAPI, HTTPException
+MEU_USUÁRIO = 'admin'
+MINHA_SENHA = 'admin'
+
+security = HTTPBasic()
+
+def autenticar_usuario(credentials: HTTPBasicCredentials = Depends(security)):
+    is_username_correct = secrets.compare_digest(credentials.username, MEU_USUÁRIO)
+    is_password_correct = secrets.compare_digest(credentials.password, MINHA_SENHA)
+
+    if not (is_username_correct and is_password_correct):
+        raise HTTPException(
+            status_code=401,
+            detail="Credenciais inválidas",
+            headers={"WWW-Authenticate": "Basic"}
+        )
 
 app = FastAPI()
-usuarios = {}
-lista_tarefas = {}
+lista_tarefas = []
 
-def criar_usuario(id_usuario, nome, idade, email):
-    if id_usuario in usuarios:
-        raise HTTPException(status_code=400, detail="ID de usuário já existe.")
+class Tarefa(BaseModel):
+    nome: str
+    descricao: str
+    concluida: bool = False
+
+# Adicionar tarefas
+ #Ao invés de adicionar as tarefas em um dicionário, deve adicionar um objeto do tipo tarefa
+
+@app.post("/criar_tarefa/")
+def criar_tarefa(tarefa: Tarefa, credentials: HTTPBasicCredentials = Depends(autenticar_usuario)):
+   for t in lista_tarefas:
+       if t.nome == tarefa.nome:
+           raise HTTPException(status_code=400, detail="Tarefa já existe")
+
+   lista_tarefas.append(tarefa)
+   return {'message': 'Tarefa criada com sucesso'}
+
+
+# Listar tarefas com paginação
+
+@app.get("/listar_tarefas/")
+def listar_tarefas():
+    if not lista_tarefas:
+        return {'message': 'Nenhuma tarefa encontrada'}
     else:
-        nome = usuario(id_usuario, nome, idade, email)
-        usuarios[id_usuario] = {'nome': nome, 'idade': idade, 'email': email}
-        return f"Usuário {nome} criado com sucesso."
+        lista_tarefas_json = [t.model_dump() for t in lista_tarefas]
+        return {'tarefas': lista_tarefas_json}
 
-class usuario:
-    def __init__(self,id_usuario,nome,idade,email):
-        self.id_usuario = id_usuario
-        self.nome = nome
-        self.idade = idade
-        self.email = email
-     
-    def exibir_dados(self):
-        print(f"Nome: {self.nome}")
-        print(f"Idade: {self.idade}")
-        print(f"Email: {self.email}")
-    
-    
-class tarefas:
-    def __init__(self,id_tarefa,nome_tarefa,descricao_tarefa,concluida,id_usuario):
-        self.id_tarefa = id_tarefa
-        self.nome_tarefa = nome_tarefa
-        self.descricao_tarefa = descricao_tarefa
-        self.concluida = False
-        self.id_usuario = id_usuario
-    
-        def criar_tarefa(self):
-            if id_tarefa in lista_tarefas:
-                raise HTTPException(status_code=400, detail="ID de tarefa já existe.")
-            else:
-                nome_tarefa = tarefas(id_tarefa, nome_tarefa, descricao_tarefa, concluida, id_usuario)
-                lista_tarefas[id_tarefa] = {'nome_tarefa': nome_tarefa, 'descricao_tarefa': descricao_tarefa, 'concluida': concluida, 'id_usuario': id_usuario}
-                return f"Tarefa {nome_tarefa} criada com sucesso para o usuário {usuarios[id_usuario]['nome']}."
+        
+       
 
+# Marcar tarefas como concluídas
 
-__name_-_ = "__main__"
+@app.put("/concluir_tarefa/{nome}")
+def concluir_tarefa(nome: str,credentials: HTTPBasicCredentials = Depends(autenticar_usuario)):
+    if not lista_tarefas:
+        raise HTTPException(status_code=404, detail="Tarefa não encontrada")
+    else:
+        for tarefa in lista_tarefas:
+            if tarefa.nome == nome:
+                tarefa.concluida = True
+    return {'message': 'Tarefa marcada como concluída'}
+        
+    
+# Excluir tarefas
+
+@app.delete("/excluir_tarefa/{nome}")
+def excluir_tarefa(nome: str, credentials: HTTPBasicCredentials = Depends(autenticar_usuario)):
+    # 1. Verifica se a lista está vazia
+    if not lista_tarefas:
+        raise HTTPException(status_code=404, detail="Não há tarefas cadastradas")
+
+    # 2. Procura a tarefa pelo nome e remove se encontrar
+    for t in lista_tarefas:
+        if t.nome == nome:
+            lista_tarefas.remove(t)
+            return {'message': 'Tarefa excluída com sucesso'}
+    
+    # 3. Se o loop rodar inteiro e não achar/retornar nada, a tarefa não existe
+    raise HTTPException(status_code=404, detail="Tarefa não encontrada")
