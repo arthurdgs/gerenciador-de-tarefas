@@ -47,12 +47,23 @@ def criar_tarefa(tarefa: Tarefa, credentials: HTTPBasicCredentials = Depends(aut
 # Listar tarefas com paginação
 
 @app.get("/listar_tarefas/")
-def listar_tarefas():
+def listar_tarefas(page: int = 1, limit: int = 10, credentials: HTTPBasicCredentials = Depends(autenticar_usuario)):
+    if page < 1 or limit < 1:
+        raise HTTPException(status_code= 400, detail="Page ou Limit estão com valores inválidos")
+    
+    start = (page - 1) * limit 
+    end = start + limit 
+
     if not lista_tarefas:
         return {'message': 'Nenhuma tarefa encontrada'}
     else:
         lista_tarefas_json = [t.model_dump() for t in lista_tarefas]
-        return {'tarefas': lista_tarefas_json}
+        return {
+            'page': page,
+            'limit': limit,
+            'total': len(lista_tarefas_json),
+            'tarefas': lista_tarefas_json[start:end],
+         }
 
         
        
