@@ -1,5 +1,3 @@
-
-
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -8,9 +6,10 @@ import secrets
 from sqlalchemy import create_engine, Column, Integer, String, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
+import os
 
 
-DATABASE_URL = "sqlite:///./tarefas.db"
+DATABASE_URL = os.getenv('DATABASE_URL')
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -18,8 +17,8 @@ Base = declarative_base()
 
 # Autenticação de usuário
 
-MEU_USUÁRIO = 'admin'
-MINHA_SENHA = 'admin'
+MEU_USUÁRIO = os.getenv('MEU_USUÁRIO')
+MINHA_SENHA = os.getenv('MINHA_SENHA')
 
 security = HTTPBasic()
 
@@ -53,7 +52,23 @@ class TarefaDb(Base):
 class Tarefa(BaseModel):
     nome: str
     descricao: str
-    concluida: bool = False 
+    concluida: bool = False
+
+
+class TarefaResponse(BaseModel):
+    nome: str
+    descricao: str
+    concluida: bool
+
+    class Config:
+        from_attributes = True
+
+
+class paginacao(BaseModel):
+    page: int
+    size: int
+    total: int
+    tarefas: list[TarefaResponse]
 
 
 Base.metadata.create_all(bind=engine)
@@ -79,43 +94,59 @@ def criar_tarefa(tarefa: Tarefa, db: Session = Depends(sessao_db), credentials: 
             status_code=400, detail="Tarefa já cadastrada")
 
     nova_tarefa = TarefaDb(
-        nome=tarefa.nome, descricao=tarefa.descricao, concluida = tarefa.concluida) 
-    
-    db.add(nova_tarefa)
-    db.commit()
-    db.refresh(nova_tarefa)
+        nome=tarefa.nome, descricao=tarefa.descricao, concluida=tarefa.concluida)
 
-    return {'message': 'Tarefa criada com sucesso'}
+    try:
+        db.add(nova_tarefa)
+        db.commit()
+        db.refresh(nova_tarefa)
+        return {'message': 'Tarefa criada com sucesso'}
+    except:
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail="Erro ao criar a tarefa")
+
 
 # Listar tarefas com paginação
 
-@app.get("/listar_tarefas/")
-def listar_tarefas(ordenar_tarefas: int = 1 , page: int = 1, size: int = 10, db: Session = Depends(sessao_db), credentials: HTTPBasicCredentials = Depends(autenticar_usuario)):
+
+@app.get("/listar_tarefas/", response_model=paginacao)
+def listar_tarefas(ordenar_tarefas: int = 1, page: int = 1, size: int = 10, db: Session = Depends(sessao_db), credentials: HTTPBasicCredentials = Depends(autenticar_usuario)):
     if page < 1 or size < 1:
         raise HTTPException(
             status_code=400, detail="Page ou Size estão com valores inválidos")
     start = (page - 1) * size
     end = start + size
 
-    if ordenar_tarefas == 1:
-        Tarefasdb = db.query(TarefaDb).order_by(TarefaDb.nome).offset(start).limit(size).all()
-    elif ordenar_tarefas == 2:
-        Tarefasdb = db.query(TarefaDb).order_by(TarefaDb.descricao).offset(start).limit(size).all()
-    elif ordenar_tarefas == 3:
-        Tarefasdb = db.query(TarefaDb).order_by(TarefaDb.concluida).offset(start).limit(size).all()
+    if ordenar_tarefas not in [1, 2, 3]:
+        raise HTTPException(
+            status_code=400, detail="Valor inválido para ordenar tarefas. Use 1 para nome, 2 para descrição ou 3 para Tarefas concluídas.")
 
+    if ordenar_tarefas == 1:
+        Tarefasdb = db.query(TarefaDb).order_by(
+            TarefaDb.nome).offset(start).limit(size).all()
+    elif ordenar_tarefas == 2:
+        Tarefasdb = db.query(TarefaDb).order_by(
+            TarefaDb.descricao).offset(start).limit(size).all()
+    elif ordenar_tarefas == 3:
+        Tarefasdb = db.query(TarefaDb).order_by(
+            TarefaDb.concluida).offset(start).limit(size).all()
 
     total_tarefas = db.query(TarefaDb).count()
-    
+
     if not Tarefasdb:
-        return {'message': 'Nenhuma tarefa encontrada'}
+        return {
+            'page': page,
+            'size': size,
+            'total': total_tarefas,
+            'tarefas': []
+        }
 
     return {
         'page': page,
         'size': size,
         'total': total_tarefas,
-        'tarefas': [{'tarefa': tarefa.nome, 'descricao': tarefa.descricao, 'concluida': tarefa.concluida} for tarefa in Tarefasdb]
-    }
+        'tarefas': Tarefasdb}
 
 
 # Marcar tarefas como concluídas
@@ -127,23 +158,36 @@ def concluir_tarefa(nome: str, db: Session = Depends(sessao_db), credentials: HT
     if not db_tarefa:
         raise HTTPException(status_code=404, detail="Tarefa não encontrada")
 
-    db_tarefa.concluida = True
-    db.commit()
-    db.refresh(db_tarefa)
-    return {'message': 'Tarefa marcada como concluída'}
+    elif db_tarefa.concluida:
+        raise HTTPException(status_code=400, detail="Tarefa já está concluída")
+
+    try:
+        db_tarefa.concluida = True
+        db.commit()
+        db.refresh(db_tarefa)
+        return {'message': 'Tarefa Concluída com sucesso'}
+    except:
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail="Erro ao concluir a tarefa")
 
 # Excluir tarefas
 
+
 @app.delete("/excluir_tarefa/{nome}")
-def excluir_tarefa(nome: str, db: Session =Depends(sessao_db), credentials: HTTPBasicCredentials = Depends(autenticar_usuario)):
+def excluir_tarefa(nome: str, db: Session = Depends(sessao_db), credentials: HTTPBasicCredentials = Depends(autenticar_usuario)):
     # 1. Verifica se a lista está vazia
 
-   db_tarefa = db.query(TarefaDb).filter(TarefaDb.nome == nome).first()
+    db_tarefa = db.query(TarefaDb).filter(TarefaDb.nome == nome).first()
 
-   if not db_tarefa:
-       raise HTTPException(status_code=404, detail="Tarefa não encontrada")
+    if not db_tarefa:
+        raise HTTPException(status_code=404, detail="Tarefa não encontrada")
 
-   db.delete(db_tarefa)
-   db.commit()
-    
-   return {'message': 'Tarefa excluída com sucesso'}
+    try:
+        db.delete(db_tarefa)
+        db.commit()
+    except:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Erro ao excluir a tarefa")
+
+    return {'message': 'Tarefa excluída com sucesso'}

@@ -1,3 +1,7 @@
+[tool.poetry]
+package-mode = false 
+
+
 [project]
 name = "gerenciador-de-tarefas"
 version = "0.1.0"
